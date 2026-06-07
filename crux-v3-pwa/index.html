@@ -2608,8 +2608,8 @@ function HomeWeeklyPlan({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 4,
-        background: on ? 'var(--primary)' : 'var(--fill)',
-        color: on ? '#fff' : 'var(--secondary)',
+        background: on || isToday ? 'var(--primary)' : 'var(--fill)',
+        color: on || isToday ? '#fff' : 'var(--secondary)',
         transition: 'all .25s',
         position: 'relative'
       }
@@ -2624,9 +2624,9 @@ function HomeWeeklyPlan({
         width: 5,
         height: 5,
         borderRadius: 999,
-        background: on ? '#fff' : (getPlan(store.get())[d].items || []).length ? 'var(--primary)' : 'transparent'
+        background: (getPlan(store.get())[d].items || []).length ? (on || isToday ? '#fff' : 'var(--primary)') : 'transparent'
       }
-    }), isToday && /*#__PURE__*/React.createElement("span", {
+    }), false && /*#__PURE__*/React.createElement("span", {
       style: {
         position: 'absolute',
         top: 5,
@@ -7871,7 +7871,7 @@ function App() {
   }), /*#__PURE__*/React.createElement(CruxTweaks, null));
 }
 
-/* ====== OVERRIDES INJECTÉS ====== */
+/* ===== OVERRIDES ===== */
 /* ===== CRUX OVERRIDES v3 : plan perso + routines multi-exercices + photos ===== */
 
 // ---- plan helper ----
@@ -8966,9 +8966,6 @@ TrainingPlan = function () {
   var ss = useStore();
   var state = ss[0];
   var PLAN = getPlan(state);
-  var mm = useState('guide'),
-    mode = mm[0],
-    setMode = mm[1];
   var today = todayKey();
   var dd = useState(today),
     day = dd[0],
@@ -8977,7 +8974,7 @@ TrainingPlan = function () {
     title: 'Repos',
     items: []
   };
-  var isPerso = mode === 'perso';
+  var isPerso = true;
   var editDay = function (patch) {
     store.set(function (st) {
       var base = st.plan ? Object.assign({}, st.plan) : JSON.parse(JSON.stringify(DEFAULT_PLAN));
@@ -9067,17 +9064,15 @@ TrainingPlan = function () {
       fontWeight: 700,
       letterSpacing: '-0.02em'
     }
-  }, "Plan hebdo"), /*#__PURE__*/React.createElement(Segmented, {
-    options: ['guide', 'perso'],
-    value: mode,
-    onChange: setMode
-  })), /*#__PURE__*/React.createElement("div", {
+  }, "Plan hebdo")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
       gap: 7,
       marginBottom: 16
     }
   }, WEEK.map(function (d) {
+    var grn = d === today || d === day;
+    var hasItems = ((PLAN[d] || {}).items || []).length > 0;
     return /*#__PURE__*/React.createElement("button", {
       key: d,
       onClick: function () {
@@ -9092,9 +9087,9 @@ TrainingPlan = function () {
         alignItems: 'center',
         justifyContent: 'center',
         gap: 3,
-        background: day === d ? 'var(--primary)' : '#fff',
-        color: day === d ? '#fff' : 'var(--secondary)',
-        boxShadow: day === d ? '0 6px 14px rgba(101,122,61,.25)' : 'var(--shadow-soft)',
+        background: grn ? 'var(--primary)' : '#fff',
+        color: grn ? '#fff' : 'var(--secondary)',
+        boxShadow: grn ? '0 6px 14px rgba(101,122,61,.25)' : 'var(--shadow-soft)',
         transition: 'all .25s'
       }
     }, /*#__PURE__*/React.createElement("span", {
@@ -9108,7 +9103,7 @@ TrainingPlan = function () {
         width: 5,
         height: 5,
         borderRadius: 999,
-        background: day === d ? '#fff' : ((PLAN[d] || {}).items || []).length ? 'var(--primary)' : 'transparent'
+        background: hasItems ? grn ? '#fff' : 'var(--primary)' : 'transparent'
       }
     }));
   })), /*#__PURE__*/React.createElement(Card, {
@@ -9228,7 +9223,7 @@ Object.assign(window, {
   TrainingPlan: TrainingPlan
 });
 
-/* ====== FIN OVERRIDES ====== */
+/* ===== FIN ===== */
 ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
 </script>
 
