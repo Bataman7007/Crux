@@ -2273,23 +2273,7 @@ function ScreenHome({
       fontWeight: 700,
       letterSpacing: '-0.02em'
     }
-  }, "Performance")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: 'flex',
-      alignItems: 'center',
-      gap: 5,
-      background: 'var(--fill)',
-      padding: '8px 14px',
-      borderRadius: 999,
-      fontSize: 13.5,
-      fontWeight: 600,
-      color: 'var(--secondary)'
-    }
-  }, "6 mois ", /*#__PURE__*/React.createElement(Icon, {
-    name: "chevronDown",
-    size: 15,
-    color: "var(--subtle)"
-  }))), /*#__PURE__*/React.createElement("div", {
+  }, "Performance"))), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'grid',
       gridTemplateColumns: '1fr auto 1fr',
@@ -2470,7 +2454,9 @@ function ScreenHome({
     name: "arrowRight",
     size: 15,
     color: "var(--primary)"
-  }))))), /*#__PURE__*/React.createElement("div", {
+  }))))), /*#__PURE__*/React.createElement(HomeWeeklyPlan, {
+    onNav: onNav
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 28
     }
@@ -2586,9 +2572,7 @@ function ScreenHome({
         flex: '0 0 auto'
       }
     }));
-  }))), /*#__PURE__*/React.createElement(HomeWeeklyPlan, {
-    onNav: onNav
-  }));
+  }))));
 }
 
 // ---- Home weekly-plan widget ----
@@ -2597,7 +2581,7 @@ function HomeWeeklyPlan({
 }) {
   const today = todayKey();
   const [day, setDay] = useState(today);
-  const plan = DEFAULT_PLAN[day];
+  const plan = getPlan(store.get())[day];
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(SectionTitle, {
     action: "Voir le plan",
     onAction: () => onNav('training')
@@ -2640,7 +2624,7 @@ function HomeWeeklyPlan({
         width: 5,
         height: 5,
         borderRadius: 999,
-        background: on ? '#fff' : DEFAULT_PLAN[d].items.length ? 'var(--primary)' : 'transparent'
+        background: on ? '#fff' : (getPlan(store.get())[d].items || []).length ? 'var(--primary)' : 'transparent'
       }
     }), isToday && /*#__PURE__*/React.createElement("span", {
       style: {
@@ -5845,7 +5829,7 @@ function TrainingPlan() {
   const [mode, setMode] = useState('guide');
   const today = todayKey();
   const [day, setDay] = useState(today);
-  const plan = DEFAULT_PLAN[day];
+  const plan = getPlan(store.get())[day];
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(Card, {
     anim: true,
     style: {
@@ -5928,7 +5912,7 @@ function TrainingPlan() {
       width: 5,
       height: 5,
       borderRadius: 999,
-      background: day === d ? '#fff' : DEFAULT_PLAN[d].items.length ? 'var(--primary)' : 'transparent'
+      background: day === d ? '#fff' : (getPlan(store.get())[d].items || []).length ? 'var(--primary)' : 'transparent'
     }
   })))), /*#__PURE__*/React.createElement(Card, {
     anim: true
@@ -7886,6 +7870,1365 @@ function App() {
     }
   }), /*#__PURE__*/React.createElement(CruxTweaks, null));
 }
+
+/* ====== OVERRIDES INJECTÉS ====== */
+/* ===== CRUX OVERRIDES v3 : plan perso + routines multi-exercices + photos ===== */
+
+// ---- plan helper ----
+function getPlan(state) {
+  const p = state && state.plan;
+  if (p && typeof p === 'object') {
+    return WEEK.reduce(function (acc, d) {
+      acc[d] = p[d] || DEFAULT_PLAN[d] || {
+        title: 'Repos',
+        items: []
+      };
+      return acc;
+    }, {});
+  }
+  return DEFAULT_PLAN;
+}
+
+// ---- routine helpers ----
+function routineExercises(r) {
+  if (r && Array.isArray(r.exercises) && r.exercises.length) {
+    return r.exercises.map(function (e) {
+      return Object.assign({}, e, {
+        photos: Array.isArray(e.photos) ? e.photos : []
+      });
+    });
+  }
+  return [{
+    id: 'e' + (r && r.id || '0'),
+    name: r && r.name || 'Exercice',
+    effort: r && r.effort || 7,
+    rest: r && r.rest || 30,
+    series: r && r.series || 5,
+    photos: []
+  }];
+}
+function routineDuration(r) {
+  return routineExercises(r).reduce(function (a, e) {
+    return a + (Math.max(0, e.effort || 0) + Math.max(0, e.rest || 0)) * Math.max(1, e.series || 1);
+  }, 0);
+}
+function fmtClock(s) {
+  var m = Math.floor(s / 60),
+    ss = s % 60;
+  return m > 0 ? ss ? m + 'min ' + ss + 's' : m + 'min' : ss + 's';
+}
+
+// ---- image compression (canvas -> jpeg base64) ----
+function compressImage(file, maxDim, quality) {
+  maxDim = maxDim || 900;
+  quality = quality || 0.7;
+  return new Promise(function (resolve, reject) {
+    var reader = new FileReader();
+    reader.onerror = function () {
+      reject(new Error('read'));
+    };
+    reader.onload = function () {
+      var img = new Image();
+      img.onerror = function () {
+        reject(new Error('img'));
+      };
+      img.onload = function () {
+        var w = img.width,
+          h = img.height;
+        if (w >= h && w > maxDim) {
+          h = Math.round(h * maxDim / w);
+          w = maxDim;
+        } else if (h > maxDim) {
+          w = Math.round(w * maxDim / h);
+          h = maxDim;
+        }
+        var c = document.createElement('canvas');
+        c.width = w;
+        c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        try {
+          resolve(c.toDataURL('image/jpeg', quality));
+        } catch (e) {
+          reject(e);
+        }
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ---- PlanItemAdder (champ d'ajout d'exercice au plan) ----
+function PlanItemAdder(props) {
+  var onAdd = props.onAdd;
+  var st = useState('');
+  var txt = st[0],
+    setTxt = st[1];
+  var submit = function () {
+    var v = txt.trim();
+    if (!v) return;
+    onAdd(v);
+    setTxt('');
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    value: txt,
+    onChange: function (e) {
+      setTxt(e.target.value);
+    },
+    onKeyDown: function (e) {
+      if (e.key === 'Enter') submit();
+    },
+    placeholder: "Ajouter un exercice\u2026",
+    style: {
+      flex: 1,
+      minWidth: 0,
+      height: 46,
+      borderRadius: 14,
+      background: 'var(--fill)',
+      border: 'none',
+      padding: '0 14px',
+      fontSize: 15,
+      fontWeight: 500,
+      outline: 'none'
+    }
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: submit,
+    style: {
+      width: 46,
+      height: 46,
+      borderRadius: 14,
+      background: 'var(--primary)',
+      display: 'grid',
+      placeItems: 'center',
+      flex: '0 0 auto',
+      boxShadow: '0 6px 14px rgba(101,122,61,.25)'
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "plus",
+    size: 20,
+    color: "#fff"
+  })));
+}
+
+// ---- RoutineRunner : enchaîne tous les exercices et leurs séries ----
+function RoutineRunner(props) {
+  var routine = props.routine,
+    onExit = props.onExit;
+  var exercises = routineExercises(routine);
+  var phases = function () {
+    var ph = [];
+    var exs = routineExercises(routine);
+    exs.forEach(function (ex, ei) {
+      var series = Math.max(1, ex.series || 1),
+        eff = Math.max(1, ex.effort || 1),
+        rest = Math.max(0, ex.rest || 0);
+      for (var s = 1; s <= series; s++) {
+        ph.push({
+          kind: 'effort',
+          dur: eff,
+          name: ex.name || 'Exercice ' + (ei + 1),
+          exIdx: ei,
+          serie: s,
+          series: series,
+          photo: (ex.photos || [])[0] || null
+        });
+        var isLast = ei === exs.length - 1 && s === series;
+        if (!isLast && rest > 0) {
+          var next = s < series ? ex.name || 'Exercice ' + (ei + 1) : exs[ei + 1].name || 'Exercice ' + (ei + 2);
+          ph.push({
+            kind: 'rest',
+            dur: rest,
+            name: next,
+            exIdx: ei,
+            serie: s,
+            series: series,
+            photo: null
+          });
+        }
+      }
+    });
+    return ph.length ? ph : [{
+      kind: 'effort',
+      dur: 1,
+      name: '—',
+      exIdx: 0,
+      serie: 1,
+      series: 1,
+      photo: null
+    }];
+  }();
+  var a = useState(0),
+    pi = a[0],
+    setPi = a[1];
+  var b = useState(phases[0].dur),
+    left = b[0],
+    setLeft = b[1];
+  var c = useState(false),
+    paused = c[0],
+    setPaused = c[1];
+  var done = pi >= phases.length;
+  useEffect(function () {
+    if (paused || done) return;
+    var t = setInterval(function () {
+      setLeft(function (l) {
+        if (l <= 1) {
+          if (pi < phases.length - 1) {
+            setPi(function (i) {
+              return i + 1;
+            });
+            return phases[pi + 1].dur;
+          } else {
+            clearInterval(t);
+            setPi(phases.length);
+            return 0;
+          }
+        }
+        return l - 1;
+      });
+    }, 1000);
+    return function () {
+      clearInterval(t);
+    };
+  }, [pi, paused, done]);
+  var cur = phases[Math.min(pi, phases.length - 1)];
+  var isEffort = !done && cur.kind === 'effort';
+  var pct = done ? 100 : (1 - left / cur.dur) * 100;
+  var mm = String(Math.floor(left / 60)).padStart(2, '0'),
+    ss = String(left % 60).padStart(2, '0');
+  var skip = function () {
+    setPi(function (p) {
+      return p < phases.length - 1 ? p + 1 : phases.length;
+    });
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: 'fixed',
+      inset: 0,
+      zIndex: 300,
+      background: done ? 'var(--bg)' : isEffort ? 'var(--bg)' : 'var(--wash)',
+      display: 'flex',
+      flexDirection: 'column',
+      animation: 'fadeIn .3s both',
+      borderRadius: 52,
+      overflow: 'hidden',
+      transition: 'background .4s'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      paddingTop: 54,
+      paddingInline: 24,
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 14,
+      fontWeight: 600,
+      color: 'var(--secondary)'
+    }
+  }, (routine.name || 'Routine') + (!done && exercises.length > 1 ? ' · Exercice ' + (cur.exIdx + 1) + '/' + exercises.length : '')), /*#__PURE__*/React.createElement("button", {
+    onClick: onExit,
+    style: {
+      width: 38,
+      height: 38,
+      borderRadius: 999,
+      background: '#fff',
+      boxShadow: 'var(--shadow-soft)',
+      display: 'grid',
+      placeItems: 'center'
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "close",
+    size: 20
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: 24
+    }
+  }, done ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 120,
+      height: 120,
+      borderRadius: 999,
+      background: 'var(--primary)',
+      display: 'grid',
+      placeItems: 'center',
+      marginBottom: 24,
+      animation: 'popIn .4s both'
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 56,
+    color: "#fff"
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 28,
+      fontWeight: 800,
+      letterSpacing: '-0.03em'
+    }
+  }, "Termin\xE9 !"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 15,
+      color: 'var(--secondary)',
+      fontWeight: 500
+    }
+  }, exercises.length + ' exercice' + (exercises.length > 1 ? 's' : '') + ' complété' + (exercises.length > 1 ? 's' : '') + '.')) : /*#__PURE__*/React.createElement(React.Fragment, null, cur.photo && /*#__PURE__*/React.createElement("img", {
+    src: cur.photo,
+    alt: "",
+    style: {
+      width: '100%',
+      maxWidth: 320,
+      height: 150,
+      objectFit: 'cover',
+      borderRadius: 20,
+      marginBottom: 22,
+      boxShadow: 'var(--shadow-card)'
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 15,
+      fontWeight: 700,
+      color: isEffort ? 'var(--primary)' : 'var(--secondary)',
+      textTransform: 'uppercase',
+      letterSpacing: '0.06em',
+      marginBottom: 18
+    }
+  }, (isEffort ? 'Effort' : 'Repos') + ' · Série ' + cur.serie + '/' + cur.series), /*#__PURE__*/React.createElement(Ring, {
+    value: pct,
+    size: 240,
+    stroke: 14,
+    animate: false,
+    color: isEffort ? 'var(--primary)' : 'var(--subtle)'
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 64,
+      fontWeight: 800,
+      letterSpacing: '-0.04em',
+      fontVariantNumeric: 'tabular-nums'
+    }
+  }, mm + ':' + ss)), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 22,
+      fontWeight: 800,
+      letterSpacing: '-0.02em',
+      marginTop: 28,
+      textAlign: 'center',
+      maxWidth: 280
+    }
+  }, isEffort ? cur.name : 'Repos → ' + cur.name))), !done && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 14,
+      padding: '0 24px 48px',
+      justifyContent: 'center'
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: function () {
+      setPaused(function (p) {
+        return !p;
+      });
+    },
+    style: {
+      width: 64,
+      height: 64,
+      borderRadius: 999,
+      background: 'var(--primary)',
+      display: 'grid',
+      placeItems: 'center',
+      boxShadow: '0 8px 20px rgba(101,122,61,.3)'
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: paused ? 'play' : 'pause',
+    size: 26,
+    color: "#fff"
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: skip,
+    style: {
+      width: 64,
+      height: 64,
+      borderRadius: 999,
+      background: '#fff',
+      boxShadow: 'var(--shadow-soft)',
+      display: 'grid',
+      placeItems: 'center'
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "arrowRight",
+    size: 24,
+    color: "var(--text)"
+  }))), done && /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: '0 24px 48px'
+    }
+  }, /*#__PURE__*/React.createElement(PrimaryButton, {
+    full: true,
+    onClick: onExit
+  }, "Fermer")));
+}
+
+// ---- RoutineForm : multi-exercices + photos ----
+RoutineForm = function (props) {
+  var draft = props.draft,
+    onSave = props.onSave,
+    onCancel = props.onCancel;
+  var rs = useState(function () {
+    return {
+      id: draft.id,
+      name: draft.name || '',
+      desc: draft.desc || '',
+      exercises: routineExercises(draft).map(function (e) {
+        return Object.assign({}, e, {
+          photos: (e.photos || []).slice()
+        });
+      })
+    };
+  });
+  var r = rs[0],
+    setR = rs[1];
+  var set = function (k, v) {
+    setR(function (prev) {
+      var o = Object.assign({}, prev);
+      o[k] = v;
+      return o;
+    });
+  };
+  var setEx = function (id, patch) {
+    setR(function (prev) {
+      return Object.assign({}, prev, {
+        exercises: prev.exercises.map(function (e) {
+          return e.id === id ? Object.assign({}, e, patch) : e;
+        })
+      });
+    });
+  };
+  var addEx = function () {
+    setR(function (prev) {
+      return Object.assign({}, prev, {
+        exercises: prev.exercises.concat([{
+          id: 'e' + Date.now() + Math.random().toString(36).slice(2, 5),
+          name: '',
+          effort: 7,
+          rest: 30,
+          series: 5,
+          photos: []
+        }])
+      });
+    });
+  };
+  var removeEx = function (id) {
+    setR(function (prev) {
+      return Object.assign({}, prev, {
+        exercises: prev.exercises.length > 1 ? prev.exercises.filter(function (e) {
+          return e.id !== id;
+        }) : prev.exercises
+      });
+    });
+  };
+  var addPhotos = function (id, fileList) {
+    var files = Array.prototype.slice.call(fileList || []);
+    files.forEach(function (f) {
+      compressImage(f).then(function (url) {
+        setR(function (prev) {
+          return Object.assign({}, prev, {
+            exercises: prev.exercises.map(function (e) {
+              return e.id === id ? Object.assign({}, e, {
+                photos: (e.photos || []).concat([url])
+              }) : e;
+            })
+          });
+        });
+      }).catch(function () {});
+    });
+  };
+  var removePhoto = function (id, idx) {
+    setR(function (prev) {
+      return Object.assign({}, prev, {
+        exercises: prev.exercises.map(function (e) {
+          return e.id === id ? Object.assign({}, e, {
+            photos: (e.photos || []).filter(function (_, j) {
+              return j !== idx;
+            })
+          }) : e;
+        })
+      });
+    });
+  };
+  var total = r.exercises.reduce(function (a, e) {
+    return a + (Math.max(0, e.effort || 0) + Math.max(0, e.rest || 0)) * Math.max(1, e.series || 1);
+  }, 0);
+  var save = function () {
+    onSave({
+      id: r.id,
+      name: (r.name || '').trim() || 'Routine',
+      desc: r.desc || '',
+      exercises: r.exercises.map(function (e, idx) {
+        return {
+          id: e.id,
+          name: (e.name || '').trim() || 'Exercice ' + (idx + 1),
+          effort: Math.max(1, e.effort || 1),
+          rest: Math.max(0, e.rest || 0),
+          series: Math.max(1, e.series || 1),
+          photos: e.photos || []
+        };
+      })
+    });
+  };
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(StepHeading, {
+    title: draft.name ? 'Modifier la routine' : 'Nouvelle routine',
+    sub: "Encha\xEEne autant d'exercices que tu veux, avec photos."
+  }), /*#__PURE__*/React.createElement("label", {
+    style: tLbl
+  }, "Nom"), /*#__PURE__*/React.createElement("input", {
+    value: r.name,
+    onChange: function (e) {
+      set('name', e.target.value);
+    },
+    placeholder: "Ex. S\xE9ance doigts + gainage",
+    style: {
+      width: '100%',
+      height: 54,
+      borderRadius: 'var(--radius-input)',
+      background: '#fff',
+      border: 'none',
+      boxShadow: 'var(--shadow-soft)',
+      padding: '0 18px',
+      fontSize: 16,
+      fontWeight: 600,
+      outline: 'none',
+      marginBottom: 18
+    }
+  }), /*#__PURE__*/React.createElement("label", {
+    style: tLbl
+  }, "Description"), /*#__PURE__*/React.createElement("textarea", {
+    value: r.desc,
+    onChange: function (e) {
+      set('desc', e.target.value);
+    },
+    placeholder: "Objectif, mat\xE9riel, consignes\u2026",
+    rows: 2,
+    style: {
+      width: '100%',
+      borderRadius: 'var(--radius-input)',
+      background: '#fff',
+      border: 'none',
+      boxShadow: 'var(--shadow-soft)',
+      padding: '14px 18px',
+      fontSize: 15,
+      fontWeight: 500,
+      outline: 'none',
+      resize: 'none',
+      marginBottom: 22
+    }
+  }), /*#__PURE__*/React.createElement("label", {
+    style: tLbl
+  }, "Exercices (\xE0 la suite)"), r.exercises.map(function (e, idx) {
+    return /*#__PURE__*/React.createElement(Card, {
+      key: e.id,
+      style: {
+        marginBottom: 12
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        marginBottom: 6
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 24,
+        height: 24,
+        borderRadius: 999,
+        background: 'var(--wash)',
+        display: 'grid',
+        placeItems: 'center',
+        fontSize: 12,
+        fontWeight: 800,
+        color: 'var(--primary)',
+        flex: '0 0 auto'
+      }
+    }, idx + 1), /*#__PURE__*/React.createElement("input", {
+      value: e.name,
+      onChange: function (ev) {
+        setEx(e.id, {
+          name: ev.target.value
+        });
+      },
+      placeholder: 'Exercice ' + (idx + 1),
+      style: {
+        flex: 1,
+        minWidth: 0,
+        height: 42,
+        borderRadius: 14,
+        background: 'var(--fill)',
+        border: 'none',
+        padding: '0 14px',
+        fontSize: 15,
+        fontWeight: 600,
+        outline: 'none'
+      }
+    }), r.exercises.length > 1 && /*#__PURE__*/React.createElement("button", {
+      onClick: function () {
+        removeEx(e.id);
+      },
+      style: {
+        width: 36,
+        height: 36,
+        borderRadius: 999,
+        background: '#fff',
+        border: '1px solid var(--border)',
+        display: 'grid',
+        placeItems: 'center',
+        flex: '0 0 auto'
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "close",
+      size: 16,
+      color: "var(--subtle)"
+    }))), /*#__PURE__*/React.createElement(ProtoControl, {
+      label: "Effort",
+      value: e.effort,
+      unit: "s",
+      onChange: function (v) {
+        setEx(e.id, {
+          effort: v
+        });
+      },
+      step: 1
+    }), /*#__PURE__*/React.createElement(ProtoControl, {
+      label: "Repos",
+      value: e.rest,
+      unit: "s",
+      onChange: function (v) {
+        setEx(e.id, {
+          rest: v
+        });
+      },
+      step: 5,
+      divider: true
+    }), /*#__PURE__*/React.createElement(ProtoControl, {
+      label: "S\xE9ries",
+      value: e.series,
+      unit: "\xD7",
+      onChange: function (v) {
+        setEx(e.id, {
+          series: v
+        });
+      },
+      step: 1,
+      divider: true
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 14,
+        paddingTop: 14,
+        borderTop: '1px solid var(--border)'
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 13,
+        fontWeight: 600,
+        color: 'var(--secondary)',
+        marginBottom: 10,
+        textTransform: 'uppercase',
+        letterSpacing: '0.02em'
+      }
+    }, "Photos"), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 8,
+        flexWrap: 'wrap',
+        alignItems: 'center'
+      }
+    }, (e.photos || []).map(function (p, pi) {
+      return /*#__PURE__*/React.createElement("div", {
+        key: pi,
+        style: {
+          position: 'relative',
+          width: 64,
+          height: 64,
+          flex: '0 0 auto'
+        }
+      }, /*#__PURE__*/React.createElement("img", {
+        src: p,
+        alt: "",
+        style: {
+          width: 64,
+          height: 64,
+          objectFit: 'cover',
+          borderRadius: 12
+        }
+      }), /*#__PURE__*/React.createElement("button", {
+        onClick: function () {
+          removePhoto(e.id, pi);
+        },
+        style: {
+          position: 'absolute',
+          top: -6,
+          right: -6,
+          width: 22,
+          height: 22,
+          borderRadius: 999,
+          background: 'var(--text)',
+          display: 'grid',
+          placeItems: 'center',
+          boxShadow: 'var(--shadow-soft)'
+        }
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "close",
+        size: 13,
+        color: "#fff"
+      })));
+    }), /*#__PURE__*/React.createElement("label", {
+      style: {
+        width: 64,
+        height: 64,
+        borderRadius: 12,
+        border: '2px dashed var(--border)',
+        display: 'grid',
+        placeItems: 'center',
+        cursor: 'pointer',
+        flex: '0 0 auto',
+        color: 'var(--primary)'
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "plus",
+      size: 22,
+      color: "var(--primary)"
+    }), /*#__PURE__*/React.createElement("input", {
+      type: "file",
+      accept: "image/*",
+      multiple: true,
+      onChange: function (ev) {
+        addPhotos(e.id, ev.target.files);
+        ev.target.value = '';
+      },
+      style: {
+        display: 'none'
+      }
+    })))));
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: addEx,
+    style: {
+      width: '100%',
+      marginBottom: 18,
+      height: 50,
+      borderRadius: 'var(--radius-input)',
+      border: '2px dashed var(--border)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      color: 'var(--primary)',
+      fontSize: 15,
+      fontWeight: 600
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "plus",
+    size: 18,
+    color: "var(--primary)"
+  }), " Ajouter un exercice"), /*#__PURE__*/React.createElement(Card, {
+    style: {
+      marginBottom: 22,
+      background: 'var(--wash)',
+      boxShadow: 'none'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13.5,
+      color: 'var(--secondary)',
+      fontWeight: 500
+    }
+  }, "Dur\xE9e totale estim\xE9e : ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: 'var(--text)'
+    }
+  }, fmtClock(total)), " \xB7 ", r.exercises.length, " exercice", r.exercises.length > 1 ? 's' : '')), /*#__PURE__*/React.createElement(PrimaryButton, {
+    full: true,
+    icon: "check",
+    onClick: save
+  }, "Enregistrer la routine"), /*#__PURE__*/React.createElement("button", {
+    onClick: onCancel,
+    style: {
+      width: '100%',
+      height: 50,
+      marginTop: 10,
+      fontSize: 15,
+      fontWeight: 600,
+      color: 'var(--secondary)'
+    }
+  }, "Annuler"));
+};
+
+// ---- RoutinesTab : liste + lancement multi-exercices + vignettes photos ----
+RoutinesTab = function () {
+  var ss = useStore();
+  var state = ss[0];
+  var routines = state.routines || [];
+  var a = useState(null),
+    active = a[0],
+    setActive = a[1];
+  var b = useState(null),
+    editing = b[0],
+    setEditing = b[1];
+  if (active) return /*#__PURE__*/React.createElement(RoutineRunner, {
+    routine: active,
+    onExit: function () {
+      setActive(null);
+    }
+  });
+  if (editing) return /*#__PURE__*/React.createElement(RoutineForm, {
+    draft: editing,
+    onCancel: function () {
+      setEditing(null);
+    },
+    onSave: function (r) {
+      store.set(function (st) {
+        var list = st.routines || [];
+        var exists = list.some(function (x) {
+          return x.id === r.id;
+        });
+        return Object.assign({}, st, {
+          routines: exists ? list.map(function (x) {
+            return x.id === r.id ? r : x;
+          }) : [r].concat(list)
+        });
+      });
+      setEditing(null);
+    }
+  });
+  var blank = function () {
+    return {
+      id: 'r' + Date.now(),
+      name: '',
+      desc: '',
+      exercises: [{
+        id: 'e' + Date.now(),
+        name: '',
+        effort: 7,
+        rest: 30,
+        series: 5,
+        photos: []
+      }]
+    };
+  };
+  var remove = function (id) {
+    store.set(function (st) {
+      return Object.assign({}, st, {
+        routines: (st.routines || []).filter(function (x) {
+          return x.id !== id;
+        })
+      });
+    });
+  };
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(Card, {
+    anim: true,
+    style: {
+      marginBottom: 18,
+      background: 'var(--wash)',
+      boxShadow: 'none'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      fontWeight: 700,
+      color: 'var(--primary)',
+      textTransform: 'uppercase',
+      letterSpacing: '0.02em',
+      marginBottom: 6
+    }
+  }, "Routines & plans"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 15,
+      color: 'var(--secondary)',
+      fontWeight: 500,
+      lineHeight: 1.45
+    }
+  }, "Cr\xE9e tes protocoles : encha\xEEne plusieurs exercices, chacun avec son minuteur et ses photos. 100% personnalisable.")), /*#__PURE__*/React.createElement("button", {
+    onClick: function () {
+      setEditing(blank());
+    },
+    style: {
+      width: '100%',
+      marginBottom: 18,
+      height: 56,
+      borderRadius: 'var(--radius-input)',
+      border: '2px dashed var(--border)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 8,
+      color: 'var(--primary)',
+      fontSize: 15.5,
+      fontWeight: 600
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "plus",
+    size: 20,
+    color: "var(--primary)"
+  }), " Cr\xE9er une routine"), routines.length === 0 && /*#__PURE__*/React.createElement(EmptyState, {
+    icon: "list",
+    title: "Aucune routine",
+    sub: "Cr\xE9e ta premi\xE8re routine personnalis\xE9e pour la lancer en un tap."
+  }), routines.map(function (r, i) {
+    var exs = routineExercises(r);
+    var allPhotos = exs.reduce(function (acc, e) {
+      return acc.concat(e.photos || []);
+    }, []);
+    return /*#__PURE__*/React.createElement(Card, {
+      key: r.id,
+      anim: true,
+      delay: i * 40,
+      pad: 16,
+      style: {
+        marginBottom: 12
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 14
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: iconBox
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "clock",
+      size: 20,
+      color: "var(--primary)"
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: 1,
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 16.5,
+        fontWeight: 700,
+        letterSpacing: '-0.01em'
+      }
+    }, r.name || 'Sans nom'), r.desc && /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: '4px 0 0',
+        fontSize: 13.5,
+        color: 'var(--secondary)',
+        fontWeight: 500,
+        lineHeight: 1.4
+      }
+    }, r.desc))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 8,
+        margin: '14px 0 0',
+        flexWrap: 'wrap'
+      }
+    }, /*#__PURE__*/React.createElement(Chip, null, exs.length + (exs.length > 1 ? ' exercices' : ' exercice')), /*#__PURE__*/React.createElement(Chip, null, fmtClock(routineDuration(r))), allPhotos.length > 0 && /*#__PURE__*/React.createElement(Chip, null, allPhotos.length + (allPhotos.length > 1 ? ' photos' : ' photo'))), allPhotos.length > 0 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 8,
+        marginTop: 12,
+        overflowX: 'auto'
+      }
+    }, allPhotos.slice(0, 6).map(function (p, pi) {
+      return /*#__PURE__*/React.createElement("img", {
+        key: pi,
+        src: p,
+        alt: "",
+        style: {
+          width: 60,
+          height: 60,
+          objectFit: 'cover',
+          borderRadius: 12,
+          flex: '0 0 auto'
+        }
+      });
+    })), exs.length > 1 && /*#__PURE__*/React.createElement("div", {
+      style: {
+        marginTop: 12
+      }
+    }, exs.map(function (e, j) {
+      return /*#__PURE__*/React.createElement("div", {
+        key: e.id || j,
+        style: {
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '8px 0',
+          borderTop: j ? '1px solid var(--border)' : 'none'
+        }
+      }, /*#__PURE__*/React.createElement("div", {
+        style: {
+          width: 22,
+          height: 22,
+          borderRadius: 999,
+          background: 'var(--wash)',
+          display: 'grid',
+          placeItems: 'center',
+          fontSize: 11.5,
+          fontWeight: 800,
+          color: 'var(--primary)',
+          flex: '0 0 auto'
+        }
+      }, j + 1), /*#__PURE__*/React.createElement("span", {
+        style: {
+          flex: 1,
+          minWidth: 0,
+          fontSize: 14,
+          fontWeight: 600,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap'
+        }
+      }, e.name || 'Exercice ' + (j + 1)), /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 12.5,
+          color: 'var(--secondary)',
+          fontWeight: 600,
+          flex: '0 0 auto'
+        }
+      }, e.effort, "s \xB7 ", e.rest, "s \xB7 ", e.series, "\xD7"));
+    })), /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: 'flex',
+        gap: 10,
+        marginTop: 16
+      }
+    }, /*#__PURE__*/React.createElement("button", {
+      onClick: function () {
+        setActive(r);
+      },
+      style: {
+        flex: 1,
+        height: 46,
+        borderRadius: 999,
+        background: 'var(--primary)',
+        color: '#fff',
+        fontSize: 14.5,
+        fontWeight: 600,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 7
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "play",
+      size: 18,
+      color: "#fff"
+    }), "Lancer"), /*#__PURE__*/React.createElement("button", {
+      onClick: function () {
+        setEditing(r);
+      },
+      style: {
+        width: 46,
+        height: 46,
+        borderRadius: 999,
+        background: '#fff',
+        border: '1px solid var(--border)',
+        display: 'grid',
+        placeItems: 'center'
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "edit",
+      size: 18,
+      color: "var(--secondary)"
+    })), /*#__PURE__*/React.createElement("button", {
+      onClick: function () {
+        remove(r.id);
+      },
+      style: {
+        width: 46,
+        height: 46,
+        borderRadius: 999,
+        background: '#fff',
+        border: '1px solid var(--border)',
+        display: 'grid',
+        placeItems: 'center'
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "close",
+      size: 18,
+      color: "var(--subtle)"
+    }))));
+  }));
+};
+
+// ---- TrainingPlan : 100% personnalisable ----
+TrainingPlan = function () {
+  var ss = useStore();
+  var state = ss[0];
+  var PLAN = getPlan(state);
+  var mm = useState('guide'),
+    mode = mm[0],
+    setMode = mm[1];
+  var today = todayKey();
+  var dd = useState(today),
+    day = dd[0],
+    setDay = dd[1];
+  var plan = PLAN[day] || {
+    title: 'Repos',
+    items: []
+  };
+  var isPerso = mode === 'perso';
+  var editDay = function (patch) {
+    store.set(function (st) {
+      var base = st.plan ? Object.assign({}, st.plan) : JSON.parse(JSON.stringify(DEFAULT_PLAN));
+      var cur = base[day] || {
+        title: '',
+        items: []
+      };
+      base[day] = Object.assign({
+        title: cur.title,
+        items: (cur.items || []).slice()
+      }, patch);
+      return Object.assign({}, st, {
+        plan: base
+      });
+    });
+  };
+  var setTitle = function (t) {
+    editDay({
+      title: t
+    });
+  };
+  var addItem = function (txt) {
+    var v = (txt || '').trim();
+    if (!v) return;
+    editDay({
+      items: (plan.items || []).concat([v])
+    });
+  };
+  var removeItem = function (i) {
+    editDay({
+      items: (plan.items || []).filter(function (_, j) {
+        return j !== i;
+      })
+    });
+  };
+  var markRepos = function () {
+    editDay({
+      title: 'Repos',
+      items: []
+    });
+  };
+  var todayPlan = PLAN[today] || {
+    title: 'Repos',
+    items: []
+  };
+  return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement(Card, {
+    anim: true,
+    style: {
+      marginBottom: 20,
+      background: 'var(--wash)',
+      boxShadow: 'none'
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12.5,
+      fontWeight: 700,
+      color: 'var(--primary)',
+      textTransform: 'uppercase',
+      letterSpacing: '0.02em',
+      marginBottom: 6
+    }
+  }, 'Plan du jour · ' + today), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 24,
+      fontWeight: 800,
+      letterSpacing: '-0.03em',
+      marginBottom: 4
+    }
+  }, todayPlan.title), /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 15,
+      color: 'var(--secondary)',
+      fontWeight: 500
+    }
+  }, (todayPlan.items || [])[0] || 'Jour de repos — récupère bien.')), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 14
+    }
+  }, /*#__PURE__*/React.createElement("h2", {
+    style: {
+      margin: 0,
+      fontSize: 22,
+      fontWeight: 700,
+      letterSpacing: '-0.02em'
+    }
+  }, "Plan hebdo"), /*#__PURE__*/React.createElement(Segmented, {
+    options: ['guide', 'perso'],
+    value: mode,
+    onChange: setMode
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: 'flex',
+      gap: 7,
+      marginBottom: 16
+    }
+  }, WEEK.map(function (d) {
+    return /*#__PURE__*/React.createElement("button", {
+      key: d,
+      onClick: function () {
+        setDay(d);
+      },
+      style: {
+        flex: 1,
+        height: 54,
+        borderRadius: 16,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 3,
+        background: day === d ? 'var(--primary)' : '#fff',
+        color: day === d ? '#fff' : 'var(--secondary)',
+        boxShadow: day === d ? '0 6px 14px rgba(101,122,61,.25)' : 'var(--shadow-soft)',
+        transition: 'all .25s'
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        fontSize: 12,
+        fontWeight: 600,
+        opacity: 0.8
+      }
+    }, d), /*#__PURE__*/React.createElement("span", {
+      style: {
+        width: 5,
+        height: 5,
+        borderRadius: 999,
+        background: day === d ? '#fff' : ((PLAN[d] || {}).items || []).length ? 'var(--primary)' : 'transparent'
+      }
+    }));
+  })), /*#__PURE__*/React.createElement(Card, {
+    anim: true
+  }, isPerso ? /*#__PURE__*/React.createElement("input", {
+    value: plan.title || '',
+    onChange: function (e) {
+      setTitle(e.target.value);
+    },
+    placeholder: "Titre du jour (ex. Repos, Grimpe + renfo\u2026)",
+    style: {
+      width: '100%',
+      height: 48,
+      borderRadius: 14,
+      background: 'var(--fill)',
+      border: 'none',
+      padding: '0 14px',
+      fontSize: 18,
+      fontWeight: 700,
+      letterSpacing: '-0.01em',
+      outline: 'none',
+      marginBottom: 14
+    }
+  }) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 18,
+      fontWeight: 700,
+      marginBottom: 14
+    }
+  }, plan.title), (plan.items || []).length === 0 && !isPerso && /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: 0,
+      fontSize: 14.5,
+      color: 'var(--secondary)'
+    }
+  }, "Profite du repos."), (plan.items || []).map(function (it, i) {
+    return /*#__PURE__*/React.createElement("div", {
+      key: i,
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '12px 0',
+        borderTop: i ? '1px solid var(--border)' : 'none'
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        width: 8,
+        height: 8,
+        borderRadius: 999,
+        background: 'var(--primary)',
+        flex: '0 0 auto'
+      }
+    }), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: 1,
+        fontSize: 15,
+        fontWeight: 500
+      }
+    }, it), isPerso && /*#__PURE__*/React.createElement("button", {
+      onClick: function () {
+        removeItem(i);
+      },
+      style: {
+        width: 30,
+        height: 30,
+        display: 'grid',
+        placeItems: 'center',
+        flex: '0 0 auto'
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "close",
+      size: 16,
+      color: "var(--subtle)"
+    })));
+  }), isPerso && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: (plan.items || []).length ? 14 : 0
+    }
+  }, /*#__PURE__*/React.createElement(PlanItemAdder, {
+    onAdd: addItem
+  })), /*#__PURE__*/React.createElement("button", {
+    onClick: markRepos,
+    style: {
+      marginTop: 12,
+      fontSize: 14,
+      fontWeight: 600,
+      color: 'var(--secondary)',
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 16,
+    color: "var(--secondary)"
+  }), " Marquer comme repos"))), isPerso && /*#__PURE__*/React.createElement("p", {
+    style: {
+      margin: '14px 4px 0',
+      fontSize: 13,
+      color: 'var(--subtle)',
+      fontWeight: 500,
+      lineHeight: 1.4
+    }
+  }, "Tes modifications sont enregistr\xE9es automatiquement et apparaissent aussi sur l'accueil."));
+};
+Object.assign(window, {
+  getPlan: getPlan,
+  routineExercises: routineExercises,
+  routineDuration: routineDuration,
+  fmtClock: fmtClock,
+  compressImage: compressImage,
+  RoutineRunner: RoutineRunner,
+  PlanItemAdder: PlanItemAdder,
+  RoutineForm: RoutineForm,
+  RoutinesTab: RoutinesTab,
+  TrainingPlan: TrainingPlan
+});
+
+/* ====== FIN OVERRIDES ====== */
 ReactDOM.createRoot(document.getElementById('root')).render(/*#__PURE__*/React.createElement(App, null));
 </script>
 
